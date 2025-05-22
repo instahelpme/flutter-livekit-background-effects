@@ -1,0 +1,2 @@
+rootProject.name = 'livekit_background_effects_native'
+include ':flutter'

@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  package="at.holzgeist.livekit_background_effects_native">
+
+  <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+</manifest>
