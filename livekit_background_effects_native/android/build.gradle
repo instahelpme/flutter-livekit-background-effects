@@ -1,0 +1,79 @@
+
+group = "me.instahelp.livekit_background_effects_native"
+version = "1.0-SNAPSHOT"
+
+buildscript {
+    ext.kotlin_version = "2.1.0"
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.11.0")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version")
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
+
+android {
+    namespace = "me.instahelp.livekit_background_effects_native"
+
+    compileSdk = 35
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_11
+    }
+
+    sourceSets {
+        main.java.srcDirs += "src/main/kotlin"
+        main.java.srcDirs += "src/main/java"
+        test.java.srcDirs += "src/test/kotlin"
+    }
+
+    defaultConfig {
+        minSdk = 23
+    }
+
+    dependencies {
+        testImplementation("org.jetbrains.kotlin:kotlin-test")
+        testImplementation("org.mockito:mockito-core:5.19.0")
+        implementation "androidx.annotation:annotation:1.9.1"
+        implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2"
+        implementation "androidx.camera:camera-core:1.4.2"
+        implementation "androidx.camera:camera-camera2:1.4.2"
+        implementation "androidx.lifecycle:lifecycle-process:2.9.3"
+        implementation 'com.google.mediapipe:tasks-vision:0.10.26.1'
+        implementation 'io.github.webrtc-sdk:android:137.7151.03'
+    }
+
+    testOptions {
+        unitTests.all {
+            useJUnitPlatform()
+
+            testLogging {
+               events "passed", "skipped", "failed", "standardOut", "standardError"
+               outputs.upToDateWhen {false}
+               showStandardStreams = true
+            }
+        }
+    }
+}
+
+dependencies {
+    implementation project(':flutter_webrtc')
+}
