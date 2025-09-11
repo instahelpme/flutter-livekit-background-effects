@@ -25,6 +25,9 @@ jobs:
   dart-format-and-analyze-check:
     name: Dart Format/Analyze/Test Check
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "livekit_background_effects"
 
     steps:
       - uses: actions/checkout@v2
