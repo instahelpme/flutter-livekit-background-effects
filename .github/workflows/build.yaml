@@ -54,6 +54,9 @@ jobs:
   build-for-android:
     name: Build for Flutter Android
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "livekit_background_effects"
 
     steps:
       - uses: actions/checkout@v2
@@ -73,6 +76,9 @@ jobs:
   build-for-ios:
     name: Build for Flutter iOS
     runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: "livekit_background_effects"
 
     steps:
       - uses: actions/checkout@v2
@@ -89,6 +95,9 @@ jobs:
   build-for-web:
     name: Build for Flutter Web
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "livekit_background_effects"
 
     steps:
       - uses: actions/checkout@v2
