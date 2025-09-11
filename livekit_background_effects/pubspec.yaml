@@ -1,6 +1,7 @@
 name: livekit_background_effects
 description: "A Plugin for Livekit Flutter SDK that adds background effects like blurring and virtual backgrounds"
 version: 0.1.0
+publish_to: none
 # homepage:
 
 environment:
