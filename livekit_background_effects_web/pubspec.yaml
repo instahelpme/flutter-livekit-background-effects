@@ -22,7 +22,9 @@ dependencies:
 
 dependency_overrides:
   dart_webrtc:
-    path: ../../../3rdparty/dart-webrtc
+    git:
+      url: https://github.com/holzgeist/dart-webrtc
+      ref: fix-export-mediastreamtrack
 
 dev_dependencies:
   flutter_test:
