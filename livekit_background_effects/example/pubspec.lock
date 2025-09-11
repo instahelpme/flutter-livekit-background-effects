@@ -82,12 +82,13 @@ packages:
     source: hosted
     version: "1.0.8"
   dart_webrtc:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
-      name: dart_webrtc
-      sha256: "3bfa069a8b14a53ba506f6dd529e9b88c878ba0cc238f311051a39bf1e53d075"
-      url: "https://pub.dev"
-    source: hosted
+      path: "."
+      ref: fix-export-mediastreamtrack
+      resolved-ref: "48689d960f6ff6001e67de084ec60e6ffcb2e7a2"
+      url: "https://github.com/holzgeist/dart-webrtc"
+    source: git
     version: "1.5.3+hotfix.5"
   dbus:
     dependency: transitive
@@ -174,12 +175,13 @@ packages:
     source: sdk
     version: "0.0.0"
   flutter_webrtc:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
-      name: flutter_webrtc
-      sha256: "945d0a38b90fbca8257eadb167d8fb9fa7075d9a1939fd2953c10054454d1de2"
-      url: "https://pub.dev"
-    source: hosted
+      path: "."
+      ref: feat-blurring
+      resolved-ref: "96cd2bc1fff4926d59e58a5f4489e372fc256c5e"
+      url: "https://github.com/holzgeist/flutter-webrtc"
+    source: git
     version: "1.1.0"
   fuchsia_remote_debug_protocol:
     dependency: transitive
@@ -276,12 +278,13 @@ packages:
     source: path
     version: "0.0.1"
   livekit_client:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
-      name: livekit_client
-      sha256: "011affc0fca22b2f9b0e8827219dad9948f84f2bf057980693de13039de904c7"
-      url: "https://pub.dev"
-    source: hosted
+      path: "."
+      ref: feat-blurring
+      resolved-ref: "5d24c85fb88c04c094eeda529bfdb596780e0711"
+      url: "https://github.com/holzgeist/client-sdk-flutter"
+    source: git
     version: "2.5.0+hotfix.3"
   logger:
     dependency: transitive

@@ -43,6 +43,20 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
 
+dependency_overrides:
+  dart_webrtc:
+    git:
+      url: https://github.com/holzgeist/dart-webrtc
+      ref: fix-export-mediastreamtrack
+  flutter_webrtc:
+    git:
+      url: https://github.com/holzgeist/flutter-webrtc
+      ref: feat-blurring
+  livekit_client:
+    git:
+      url: https://github.com/holzgeist/client-sdk-flutter
+      ref: feat-blurring
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
