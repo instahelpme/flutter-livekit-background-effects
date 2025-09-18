@@ -54,7 +54,7 @@ android {
         testImplementation("org.mockito:mockito-core:5.19.0")
         implementation "androidx.annotation:annotation:1.9.1"
         implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2"
-        implementation "androidx.camera:camera-core:1.4.2"
+        implementation "androidx.camera:camera-core:1.5.0"
         implementation "androidx.camera:camera-camera2:1.5.0"
         implementation "androidx.lifecycle:lifecycle-process:2.9.3"
         implementation 'com.google.mediapipe:tasks-vision:0.10.26.1'
