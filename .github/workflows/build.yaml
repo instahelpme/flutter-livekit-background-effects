@@ -24,7 +24,7 @@ on:
 jobs:
   dart-format-and-analyze-check:
     name: Dart Format/Analyze/Test Check
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-ubuntu-latest
     defaults:
       run:
         working-directory: "livekit_background_effects"
@@ -51,7 +51,7 @@ jobs:
 
   build-for-android:
     name: Build for Flutter Android
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-ubuntu-latest
     defaults:
       run:
         working-directory: "livekit_background_effects"
@@ -73,7 +73,7 @@ jobs:
 
   build-for-ios:
     name: Build for Flutter iOS
-    runs-on: macos-latest
+    runs-on: self-hosted-macos-latest
     defaults:
       run:
         working-directory: "livekit_background_effects"
@@ -92,7 +92,7 @@ jobs:
 
   build-for-web:
     name: Build for Flutter Web
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-ubuntu-latest
     defaults:
       run:
         working-directory: "livekit_background_effects"
