@@ -90,14 +90,13 @@ packages:
     source: hosted
     version: "1.0.8"
   dart_webrtc:
-    dependency: "direct overridden"
+    dependency: transitive
     description:
-      path: "."
-      ref: fix-export-mediastreamtrack
-      resolved-ref: "48689d960f6ff6001e67de084ec60e6ffcb2e7a2"
-      url: "https://github.com/holzgeist/dart-webrtc"
-    source: git
-    version: "1.5.3+hotfix.5"
+      name: dart_webrtc
+      sha256: "51bcda4ba5d7dd9e65a309244ce3ac0b58025e6e1f6d7442cee4cd02134ef65f"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.6.0"
   dbus:
     dependency: transitive
     description:
