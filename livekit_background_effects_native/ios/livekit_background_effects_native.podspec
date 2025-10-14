@@ -16,7 +16,7 @@ A new Flutter plugin project.
   s.source_files = 'Classes/**/*'
   s.dependency 'Flutter'
   s.dependency 'flutter_webrtc'
-  s.dependency 'WebRTC-SDK', '137.7151.03'
+  s.dependency 'WebRTC-SDK', '137.7151.04'
   s.platform = :ios, '13.0'
 
   # Flutter.framework does not contain a i386 slice.
