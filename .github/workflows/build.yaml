@@ -65,6 +65,18 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+      - name: set up JDK 17
+        if: contains(needs.determine-builder.outputs.android-runner-label, 'ubuntu')
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Setup Android SDK
+        if: contains(needs.determine-builder.outputs.android-runner-label, 'ubuntu')
+        uses: amyu/setup-android@v5.0
+        with:
+          sdk-version: '35'
+          build-tools-version: ${{env.BUILD_TOOLS_VERSION}}
       - name: Install project dependencies
         run: flutter pub get
       - name: Build for Android
