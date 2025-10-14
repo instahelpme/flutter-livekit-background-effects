@@ -33,7 +33,7 @@
             "matchPackageNames": [
                 "com.google.mediapipe:tasks-vision"
             ],
-            "allowedVersions": "!/^v0.20230731$/"
+            "allowedVersions": "!/^0.20230731$/"
         }
     ]
 }
