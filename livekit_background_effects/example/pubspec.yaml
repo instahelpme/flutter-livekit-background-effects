@@ -49,10 +49,6 @@ dev_dependencies:
   flutter_lints: ^6.0.0
 
 dependency_overrides:
-  dart_webrtc:
-    git:
-      url: https://github.com/holzgeist/dart-webrtc
-      ref: fix-export-mediastreamtrack
   flutter_webrtc:
     git:
       url: https://github.com/holzgeist/flutter-webrtc

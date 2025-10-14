@@ -1,0 +1,31 @@
+{
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "extends": [
+        "config:recommended"
+    ],
+    "prHourlyLimit": 8,
+    "pre-commit": {
+        "enabled": true
+    },
+    "lockFileMaintenance": {
+        "enabled": true,
+        "schedule": [
+            "at any time"
+        ]
+    },
+    "customManagers": [
+        {
+            "customType": "regex",
+            "managerFilePatterns": [
+                "/^.github/workflows/build.yml$/"
+            ],
+            "matchStrings": [
+                "flutter-version: (?<currentValue>.*)\\n"
+            ],
+            "datasourceTemplate": "flutter-version",
+            "depNameTemplate": "flutter"
+        }
+    ],
+    "semanticCommitType": "fix",
+    "rangeStrategy": "auto"
+}
