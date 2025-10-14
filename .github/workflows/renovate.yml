@@ -1,0 +1,40 @@
+name: Renovate
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * 1'
+
+env:
+  LOG_LEVEL: info
+  RENOVATE_CONFIG_FILE: .github/renovate.json
+  RENOVATE_DRY_RUN: false
+  RENOVATE_REPOSITORIES: ${{ github.repository }}
+  RENOVATE_USERNAME: "renovate-instahelp[bot]"
+  RENOVATE_GIT_AUTHOR: "Renovate Bot <bot@renovateapp.com>"
+
+jobs:
+  renovate:
+    runs-on: self-hosted-ubuntu-latest
+    steps:
+      - name: Get token
+        uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          private-key: ${{ secrets.RENOVATE_KEY }}
+          app-id: 264287
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Override default config from dispatch variables
+        run: |
+          echo "RENOVATE_DRY_RUN=${{ github.event.inputs.dryRun || env.RENOVATE_DRY_RUN }}" | tee -a "${GITHUB_ENV}"
+          echo "LOG_LEVEL=${{ github.event.inputs.logLevel || env.LOG_LEVEL }}" | tee -a "${GITHUB_ENV}"
+          echo "RENOVATE_BASE_BRANCHES=${GITHUB_REF##*/}" | tee -a "${GITHUB_ENV}"
+
+      - name: Self-hosted Renovate
+        uses: renovatebot/github-action@v43.0.16
+        with:
+          configurationFile: .github/renovate.json
+          token: 'x-access-token:${{ steps.app-token.outputs.token }}'
+
