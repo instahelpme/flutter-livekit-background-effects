@@ -57,7 +57,7 @@ android {
         implementation "androidx.camera:camera-core:1.5.1"
         implementation "androidx.camera:camera-camera2:1.5.1"
         implementation "androidx.lifecycle:lifecycle-process:2.9.4"
-        implementation 'com.google.mediapipe:tasks-vision:0.10.26.1'
+        implementation 'com.google.mediapipe:tasks-vision:0.10.29'
         implementation 'io.github.webrtc-sdk:android:137.7151.04'
     }
 
