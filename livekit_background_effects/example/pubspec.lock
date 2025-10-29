@@ -313,10 +313,10 @@ packages:
     description:
       path: "."
       ref: feat-blurring
-      resolved-ref: f297b183b8cfb51689bd61b0075f63e1e7bdd3c9
+      resolved-ref: "76bafa45fb8ec59e7a73a65bff099004381438fa"
       url: "https://github.com/holzgeist/client-sdk-flutter"
     source: git
-    version: "2.5.1"
+    version: "2.5.2"
   livekit_components:
     dependency: "direct main"
     description:
