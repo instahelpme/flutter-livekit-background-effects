@@ -100,7 +100,7 @@ class LivekitBackgroundEffectsWeb extends LivekitBackgroundEffectsPlatform {
   @override
   Future<bool> blurringSupported() async {
     await _ensureLoaded();
-    return JSProcessor.isSupported;
+    return supportsBackgroundProcessors() && JSProcessor.isSupported;
   }
 
   @override
