@@ -47,6 +47,9 @@ class LivekitBackgroundEffects extends TrackProcessor<VideoProcessorOptions> {
 
   @override
   Future<void> init(ProcessorOptions<TrackType> options) async {
+    if (_initialized) {
+      await destroy();
+    }
     await _instance.initVideoBlurring(_id, options);
     _initialized = true;
     if (_options != null) {
