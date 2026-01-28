@@ -24,7 +24,7 @@ jobs:
           app-id: 264287
 
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Override default config from dispatch variables
         run: |
