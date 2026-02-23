@@ -164,7 +164,7 @@ class LivekitBackgroundEffectsNativePlugin : FlutterPlugin, MethodCallHandler {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             val modelPath = flutterAssets.getAssetFilePathByName(
                 "assets/models/selfie_segmenter.tflite",
-                "livekit_background_effects_platform_interface"
+                "livekit_background_effects_native"
             )
             val modelStream = assetManager.open(modelPath)
             val length = modelStream.available()
@@ -262,7 +262,7 @@ class LivekitBackgroundEffectsNativePlugin : FlutterPlugin, MethodCallHandler {
         }
 
         val modelPath = flutterAssets.getAssetFilePathByName(
-            "assets/models/selfie_segmenter.tflite", "livekit_background_effects_platform_interface"
+            "assets/models/selfie_segmenter.tflite", "livekit_background_effects_native"
         )
         val modelStream = assetManager.open(modelPath)
 
