@@ -5,7 +5,7 @@ version: 0.0.1
 
 environment:
   sdk: ^3.8.0
-  flutter: '>=3.3.0'
+  flutter: '>=3.41.0'
 
 dependencies:
   flutter:
@@ -48,9 +48,12 @@ flutter:
 
   # To add assets to your plugin package, add an assets section, like this:
   assets:
-    - assets/track-processor.js
-    - assets/mediapipe/
-    - assets/segmenter/
+    - path: assets/track-processor.js
+      platforms: [web]
+    - path: assets/mediapipe/
+      platforms: [web]
+    - path: assets/segmenter/
+      platforms: [web]
   #   - images/a_dot_ham.jpeg
   #
   # For details regarding assets in packages, see
