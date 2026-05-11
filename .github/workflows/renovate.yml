@@ -9,8 +9,6 @@ env:
   RENOVATE_CONFIG_FILE: .github/renovate.json
   RENOVATE_DRY_RUN: false
   RENOVATE_REPOSITORIES: ${{ github.repository }}
-  RENOVATE_USERNAME: "renovate-instahelp[bot]"
-  RENOVATE_GIT_AUTHOR: "Renovate Bot <bot@renovateapp.com>"
 
 jobs:
   renovate:
@@ -37,4 +35,3 @@ jobs:
         with:
           configurationFile: .github/renovate.json
           token: 'x-access-token:${{ steps.app-token.outputs.token }}'
-
