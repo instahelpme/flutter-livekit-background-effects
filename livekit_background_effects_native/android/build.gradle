@@ -28,7 +28,7 @@ apply plugin: "kotlin-android"
 android {
     namespace = "me.instahelp.livekit_background_effects_native"
 
-    compileSdk = 35
+    compileSdk = 36
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
