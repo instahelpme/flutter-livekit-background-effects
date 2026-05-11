@@ -3,7 +3,7 @@ group = "me.instahelp.livekit_background_effects_native"
 version = "1.0-SNAPSHOT"
 
 buildscript {
-    ext.kotlin_version = "2.2.21"
+    ext.kotlin_version = "2.3.20"
     repositories {
         google()
         mavenCentral()
@@ -51,13 +51,13 @@ android {
 
     dependencies {
         testImplementation("org.jetbrains.kotlin:kotlin-test")
-        testImplementation("org.mockito:mockito-core:5.22.0")
+        testImplementation("org.mockito:mockito-core:5.23.0")
         implementation "androidx.annotation:annotation:1.10.0"
         implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2"
         implementation "androidx.camera:camera-core:1.5.3"
         implementation "androidx.camera:camera-camera2:1.5.3"
         implementation "androidx.lifecycle:lifecycle-process:2.10.0"
-        implementation 'com.google.mediapipe:tasks-vision:0.10.32'
+        implementation 'com.google.mediapipe:tasks-vision:0.10.33'
         implementation 'io.github.webrtc-sdk:android:144.7559.01'
     }
 
