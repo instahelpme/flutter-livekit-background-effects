@@ -19,6 +19,28 @@ abstract interface class Background {
   String? get license;
   String? get author;
   String? get source;
+
+  @override
+  @mustCallSuper
+  bool operator ==(Object other) =>
+      other is Background &&
+      assetId == other.assetId &&
+      package == other.package &&
+      name == other.name &&
+      license == other.license &&
+      author == other.author &&
+      source == other.source;
+
+  @override
+  int get hashCode => Object.hash(
+    super.hashCode,
+    assetId,
+    package,
+    name,
+    license,
+    author,
+    source,
+  );
 }
 
 enum BackgroundPresets implements Background {
@@ -111,6 +133,17 @@ class LivekitBackgroundEffectsOptions {
 
   final BlurLevel? blurLevel;
   final Background? virtualBackground;
+
+  @override
+  @mustCallSuper
+  bool operator ==(Object other) {
+    return other is LivekitBackgroundEffectsOptions &&
+        blurLevel == other.blurLevel &&
+        virtualBackground == other.virtualBackground;
+  }
+
+  @override
+  int get hashCode => Object.hash(super.hashCode, blurLevel, virtualBackground);
 }
 
 abstract class LivekitBackgroundEffectsPlatform extends PlatformInterface {
