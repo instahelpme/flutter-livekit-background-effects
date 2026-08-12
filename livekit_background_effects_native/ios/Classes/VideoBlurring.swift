@@ -32,6 +32,24 @@ private typealias BlurOptions = (Int?, CIImage?)
 
   private let requestHandler = VNSequenceRequestHandler()
 
+  // Dedicated queue so Vision + CIContext work never blocks the camera capture thread.
+  private let processingQueue = DispatchQueue(
+    label: "instahelp.video-blurring.processing", qos: .userInitiated)
+
+  // Reuse CIContext across frames — creating one per frame recreates a full GPU pipeline.
+  private lazy var ciContext: CIContext = CIContext(options: [.useSoftwareRenderer: false])
+
+  // Reuse CIFilter instances — filter setup has non-trivial overhead at 30 fps.
+  private let maskInvertFilter = CIFilter(name: "CIColorInvert")!
+  private let maskedBlurFilter = CIFilter(name: "CIMaskedVariableBlur")!
+  private let blendWithMaskFilter = CIFilter(name: "CIBlendWithMask")!
+
+  // Pool for output pixel buffers — avoids a malloc + zero-fill on every frame.
+  private var outputPool: CVPixelBufferPool?
+  private var outputPoolWidth = 0
+  private var outputPoolHeight = 0
+  private var outputPoolFormat: OSType = 0
+
   override init() {
     super.init()
     if #available(iOS 15.0, *) {
@@ -69,7 +87,9 @@ private typealias BlurOptions = (Int?, CIImage?)
       }
     })
     if run {
-      processFrame(inFlight!, capturer: inFlightCapturer!, options: blur)
+      processingQueue.async {
+        self.processFrame(frame, capturer: capturer, options: blur)
+      }
     }
   }
 
@@ -99,6 +119,7 @@ private typealias BlurOptions = (Int?, CIImage?)
     if #available(iOS 15.0, *) {
       guard let pixelBuffer = videoFrameToPixelBuffer(frame) else {
         print("Failed to convert video frame to pixel buffer")
+        finalizeFrame()
         return
       }
 
@@ -108,8 +129,11 @@ private typealias BlurOptions = (Int?, CIImage?)
         capturer: capturer,
         options: options
       )
+    } else {
+      // Blurring requires iOS 15; pass frame through unmodified on older OS.
+      sink?.capturer(capturer, didCapture: frame)
+      finalizeFrame()
     }
-
   }
 
   @available(iOS 15.0, *)
@@ -147,6 +171,7 @@ private typealias BlurOptions = (Int?, CIImage?)
       )
     else {
       print("Failed to convert pixel buffer to video frame")
+      finalizeFrame()
       return
     }
     sink?.capturer(capturer, didCapture: processedFrame)
@@ -163,26 +188,19 @@ private typealias BlurOptions = (Int?, CIImage?)
     let originalImage = CIImage(cvPixelBuffer: original)
 
     var maskImage = CIImage(cvImageBuffer: mask)
-    let maskInvertFilter = CIFilter(name: "CIColorInvert")!
     maskInvertFilter.setValue(maskImage, forKey: kCIInputImageKey)
     maskImage = maskInvertFilter.outputImage!
 
     // Scale the mask image to fit the bounds of the video frame.
     let scaleX = originalImage.extent.width / maskImage.extent.width
     let scaleY = originalImage.extent.height / maskImage.extent.height
-    let scaledMaskImage = maskImage.transformed(
-      by: .init(scaleX: scaleX, y: scaleY)
-    )
+    let scaledMaskImage = maskImage.transformed(by: .init(scaleX: scaleX, y: scaleY))
 
-    let blendFilter = CIFilter(name: "CIMaskedVariableBlur")!
-    blendFilter.setValue(originalImage, forKey: kCIInputImageKey)
-    blendFilter.setValue(scaledMaskImage, forKey: "inputMask")
-    blendFilter.setValue(radius, forKey: kCIInputRadiusKey)
+    maskedBlurFilter.setValue(originalImage, forKey: kCIInputImageKey)
+    maskedBlurFilter.setValue(scaledMaskImage, forKey: "inputMask")
+    maskedBlurFilter.setValue(radius, forKey: kCIInputRadiusKey)
 
-    let blended = blendFilter.outputImage!
-
-    //   return blendFilter.outputImage!
-    return blended.cropped(to: originalImage.extent)
+    return maskedBlurFilter.outputImage!.cropped(to: originalImage.extent)
   }
 
   private func applyVirtualBackground(
@@ -193,69 +211,58 @@ private typealias BlurOptions = (Int?, CIImage?)
     -> CIImage
   {
     let originalImage = CIImage(cvPixelBuffer: original)
-
     let maskImage = CIImage(cvImageBuffer: mask)
 
     // Scale the mask image to fit the bounds of the video frame.
     let scaleX = originalImage.extent.width / maskImage.extent.width
     let scaleY = originalImage.extent.height / maskImage.extent.height
-    let scaledMaskImage = maskImage.transformed(
-      by: .init(scaleX: scaleX, y: scaleY)
-    )
+    let scaledMaskImage = maskImage.transformed(by: .init(scaleX: scaleX, y: scaleY))
 
-    let blendFilter = CIFilter(name: "CIBlendWithMask")!
-    blendFilter.setValue(originalImage, forKey: kCIInputImageKey)
-    blendFilter.setValue(scaledMaskImage, forKey: kCIInputMaskImageKey)
-    blendFilter.setValue(bg, forKey: kCIInputBackgroundImageKey)
+    blendWithMaskFilter.setValue(originalImage, forKey: kCIInputImageKey)
+    blendWithMaskFilter.setValue(scaledMaskImage, forKey: kCIInputMaskImageKey)
+    blendWithMaskFilter.setValue(bg, forKey: kCIInputBackgroundImageKey)
 
-    let blended = blendFilter.outputImage!
-
-    //   return blendFilter.outputImage!
-    return blended  //.cropped(to: originalImage.extent)
-
+    return blendWithMaskFilter.outputImage!
   }
 
   private func finalizeFrame() {
-    let run = lock.withLock({ () -> Bool in
-      inFlight = nil
-      inFlightCapturer = nil
-      return false
-
-      if next == nil {
-        inFlight = nil
-        inFlightCapturer = nil
-        return false
-      } else {
-        inFlight = next
-        inFlightCapturer = nextCapturer
-        next = nil
-        nextCapturer = nil
-        return true
-      }
-    })
-    if run {
-      // tail recursion optimization for the rescue..
-      let blur = getBlurOptions(
-        forWidth: Int(inFlight!.width),
-        andHeight: Int(inFlight!.height),
-        andRotation: inFlight!.rotation
-      )
-      processFrame(inFlight!, capturer: inFlightCapturer!, options: blur)
+    let (run, nextFrame, nextCap) = lock.withLock(
+      { () -> (Bool, RTCVideoFrame?, RTCVideoCapturer?) in
+        if next == nil {
+          inFlight = nil
+          inFlightCapturer = nil
+          return (false, nil, nil)
+        } else {
+          let f = next!
+          let c = nextCapturer!
+          inFlight = f
+          inFlightCapturer = c
+          next = nil
+          nextCapturer = nil
+          return (true, f, c)
+        }
+      })
+    if run, let frame = nextFrame, let cap = nextCap {
+      let blur = bgLock.withLock({
+        getBlurOptions(
+          forWidth: Int(frame.width),
+          andHeight: Int(frame.height),
+          andRotation: frame.rotation
+        )
+      })
+      // Already on processingQueue — call directly (tail-call style) rather than re-enqueuing.
+      processFrame(frame, capturer: cap, options: blur)
     }
   }
 
-  private func pixelBufferToVideoFrame(
-    _ pixelBuffer: CVPixelBuffer,
-    rotation: RTCVideoRotation,
-    timeStampNs: Int64
-  ) -> RTCVideoFrame? {
-
-    let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-    return ciImageToVideoFrame(
-      ciImage,
-      rotation: rotation,
-      timeStampNs: timeStampNs
-    )
+  private func videoFrameToPixelBuffer(_ rtcVideoFrame: RTCVideoFrame) -> CVPixelBuffer? {
+    guard let cvPixelBuffer = rtcVideoFrame.buffer as? RTCCVPixelBuffer else {
+      print("Error: RTCVideoFrame is not of type RTCCVPixelBuffer")
+      return nil
+    }
+    // Return the underlying buffer directly — Vision can work with it as-is,
+    // so there's no need for the CIImage round-trip that was here before.
+    return cvPixelBuffer.pixelBuffer
   }
 
   private func ciImageToVideoFrame(
@@ -278,78 +285,54 @@ private typealias BlurOptions = (Int?, CIImage?)
       rotation: rotation,
       timeStampNs: timeStampNs
     )
-
-  }
-
-  private func videoFrameToPixelBuffer(_ rtcVideoFrame: RTCVideoFrame)
-    -> CVPixelBuffer?
-  {
-    guard let cvPixelBuffer = rtcVideoFrame.buffer as? RTCCVPixelBuffer else {
-      print("Error: RTCVideoFrame is not of type RTCCVPixelBuffer")
-      return nil
-    }
-
-    let pixelBuffer = cvPixelBuffer.pixelBuffer
-    let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-    //    let targetOrientation: CGImagePropertyOrientation =
-    //    switch (rtcVideoFrame.rotation) {
-    //
-    //    case ._0:
-    //      CGImagePropertyOrientation.up
-    //    case ._90:
-    //      CGImagePropertyOrientation.right
-    //    case ._180:
-    //      CGImagePropertyOrientation.down
-    //    case ._270:
-    //      CGImagePropertyOrientation.left
-    //    @unknown default:
-    //      CGImagePropertyOrientation.up
-    //    }
-    //    let rotatedCiImage = ciImage.oriented(targetOrientation)
-    //    print("frame orientation \(rtcVideoFrame.rotation)")
-    //    print("ciImage \(ciImage.extent)")
-    //    print("rotatedCiImage \(rotatedCiImage.extent)")
-    return ciImageToPixelBuffer(ciImage)
   }
 
   private func ciImageToPixelBuffer(
     _ ciImage: CIImage,
     pixelFormat: OSType = kCVPixelFormatType_32BGRA
   ) -> CVPixelBuffer? {
-    let options: [CIContextOption: Any] = [
-      .useSoftwareRenderer: false
-    ]
-
-    let ciContext = CIContext(options: options)
-
     let width = Int(ciImage.extent.width)
     let height = Int(ciImage.extent.height)
 
-    let pixelBufferAttributes: [String: Any] = [
-      //      kCVPixelBufferCGImageCompatibilityKey as String: true,
-      //      kCVPixelBufferCGBitmapContextCompatibilityKey as String: true,
-      //      kCVPixelBufferMetalCompatibilityKey as String: true,
-      //      kCVPixelBufferWidthKey as String: width,
-      //      kCVPixelBufferHeightKey as String: height,
-      kCVPixelBufferPixelFormatTypeKey as String: pixelFormat
-    ]
-
-    var pixelBuffer: CVPixelBuffer?
-    let status = CVPixelBufferCreate(
-      kCFAllocatorDefault,
-      width,
-      height,
-      pixelFormat,
-      pixelBufferAttributes as CFDictionary,
-      &pixelBuffer
-    )
-
-    guard status == kCVReturnSuccess, let result = pixelBuffer else {
+    guard let result = allocatePixelBuffer(width: width, height: height, pixelFormat: pixelFormat)
+    else {
       return nil
     }
     ciContext.render(ciImage, to: result)
-
     return result
+  }
+
+  private func allocatePixelBuffer(width: Int, height: Int, pixelFormat: OSType) -> CVPixelBuffer? {
+    if outputPool == nil || outputPoolWidth != width || outputPoolHeight != height
+      || outputPoolFormat != pixelFormat
+    {
+      // IOSurface-backed buffers let the GPU access them directly, avoiding CPU↔GPU copies.
+      let attrs: [String: Any] = [
+        kCVPixelBufferPixelFormatTypeKey as String: pixelFormat,
+        kCVPixelBufferWidthKey as String: width,
+        kCVPixelBufferHeightKey as String: height,
+        kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
+      ]
+      var pool: CVPixelBufferPool?
+      guard
+        CVPixelBufferPoolCreate(kCFAllocatorDefault, nil, attrs as CFDictionary, &pool)
+          == kCVReturnSuccess,
+        let pool
+      else { return nil }
+      outputPool = pool
+      outputPoolWidth = width
+      outputPoolHeight = height
+      outputPoolFormat = pixelFormat
+    }
+
+    var pixelBuffer: CVPixelBuffer?
+    guard
+      let pool = outputPool,
+      CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer)
+        == kCVReturnSuccess,
+      let pixelBuffer
+    else { return nil }
+    return pixelBuffer
   }
 
   private func getBlurOptions(
@@ -366,7 +349,9 @@ private typealias BlurOptions = (Int?, CIImage?)
 
     if scaledVirtualBG != nil {
       let scaledBG: CIImage = scaledVirtualBG!
-      if scaledBG.extent.size.equalTo(CGSize(width: width, height: height)) && rotation == virtualBGRotation {
+      if scaledBG.extent.size.equalTo(CGSize(width: width, height: height))
+        && rotation == virtualBGRotation
+      {
         return (nil, scaledVirtualBG)
       }
     }
@@ -377,11 +362,15 @@ private typealias BlurOptions = (Int?, CIImage?)
     case ._0:
       vBG = virtualBG!
     case ._90:
-      vBG = virtualBG!.transformed(by: CGAffineTransform(rotationAngle: 90 * .pi/180).translatedBy(x: 0, y: -s1.height))
+      vBG = virtualBG!.transformed(
+        by: CGAffineTransform(rotationAngle: 90 * .pi / 180).translatedBy(x: 0, y: -s1.height))
     case ._180:
-      vBG = virtualBG!.transformed(by: CGAffineTransform(rotationAngle: 180 * .pi/180).translatedBy(x: -s1.width, y: -s1.height))
+      vBG = virtualBG!.transformed(
+        by: CGAffineTransform(rotationAngle: 180 * .pi / 180).translatedBy(
+          x: -s1.width, y: -s1.height))
     case ._270:
-      vBG = virtualBG!.transformed(by: CGAffineTransform(rotationAngle: 270 * .pi/180).translatedBy(x: -s1.width, y: 0))
+      vBG = virtualBG!.transformed(
+        by: CGAffineTransform(rotationAngle: 270 * .pi / 180).translatedBy(x: -s1.width, y: 0))
     @unknown default:
       return (nil, nil)
     }
@@ -389,10 +378,9 @@ private typealias BlurOptions = (Int?, CIImage?)
     let scaleWidth = Double(width) / size.width
     let scaleHeight = Double(height) / size.height
 
-    //let minScale = Double.minimum(scaleHeight, scaleWidth)
     let maxScale = Double.maximum(scaleHeight, scaleWidth)
 
-    let transformation = CGAffineTransform(scaleX: maxScale, y: maxScale)  //.translatedBy(x: size.width * maxScale - Double(width), y: size.height * maxScale - Double(height))
+    let transformation = CGAffineTransform(scaleX: maxScale, y: maxScale)
 
     scaledVirtualBG = vBG.transformed(by: transformation).cropped(
       to: CGRect(x: 0, y: 0, width: width, height: height)
