@@ -53,7 +53,7 @@ private typealias BlurOptions = (Int?, CIImage?)
   override init() {
     super.init()
     if #available(iOS 15.0, *) {
-      segmentationRequest.qualityLevel = .fast
+      segmentationRequest.qualityLevel = .balanced
       segmentationRequest.outputPixelFormat = kCVPixelFormatType_OneComponent8
     }
   }
