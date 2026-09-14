@@ -13,15 +13,16 @@ let package = Package(
     ],
     dependencies: [
         .package(name: "FlutterFramework", path: "../FlutterFramework"),
-        .package(url: "https://github.com/flutter-webrtc/flutter-webrtc", from: "1.5.0")
+        // Resolved by the Flutter tool to the flutter_webrtc plugin package.
+        .package(name: "flutter_webrtc", path: "../flutter_webrtc")
     ],
     targets: [
         .target(
             name: "livekit_background_effects_native",
             dependencies: [
                 .product(name: "FlutterFramework", package: "FlutterFramework"),
-                .product(name: "flutter-webrtc", package: "flutter-webrtc"),
-                .product(name: "WebRTC", package: "flutter-webrtc")
+                .product(name: "flutter-webrtc", package: "flutter_webrtc"),
+                .product(name: "WebRTC", package: "flutter_webrtc")
             ],
             resources: [
                 .process("PrivacyInfo.xcprivacy")
