@@ -23,8 +23,6 @@ allprojects {
 }
 
 apply plugin: "com.android.library"
-apply plugin: "kotlin-android"
-
 android {
     namespace = "me.instahelp.livekit_background_effects_native"
 
@@ -33,10 +31,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-    }
-
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11
     }
 
     sourceSets {
@@ -72,4 +66,19 @@ android {
 
 dependencies {
     implementation project(':flutter_webrtc')
+}
+
+// Configure the Kotlin JVM target. The compilerOptions DSL is available with
+// KGP 1.9+ and built-in Kotlin; older KGP only supports kotlinOptions.
+def kotlinExt = project.extensions.findByName('kotlin')
+if (kotlinExt?.hasProperty('compilerOptions')) {
+    kotlin {
+        compilerOptions {
+            jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
+        }
+    }
+} else if (project.android.hasProperty('kotlinOptions')) {
+    android.kotlinOptions {
+        jvmTarget = '11'
+    }
 }
