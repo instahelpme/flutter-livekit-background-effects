@@ -8,50 +8,26 @@
 
 package me.instahelp.livekit_background_effects_native
 
+import android.content.Context
 import android.content.res.AssetManager
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.os.Build
-import android.os.SystemClock
 import android.util.Log
-import androidx.annotation.OptIn
-import androidx.annotation.RequiresApi
-import androidx.camera.camera2.interop.ExperimentalCamera2Interop
-import androidx.camera.core.ExperimentalGetImage
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageProxy
-import androidx.lifecycle.ProcessLifecycleOwner
-import com.cloudwebrtc.webrtc.CameraCapturerUtils
 import com.cloudwebrtc.webrtc.FlutterWebRTCPlugin
 import com.cloudwebrtc.webrtc.utils.EglUtils
 import com.cloudwebrtc.webrtc.video.LocalVideoTrack
-import com.google.mediapipe.framework.image.BitmapImageBuilder
-import com.google.mediapipe.framework.image.ByteBufferExtractor
-import com.google.mediapipe.framework.image.MPImage
-import com.google.mediapipe.tasks.core.BaseOptions
-import com.google.mediapipe.tasks.core.Delegate
-import com.google.mediapipe.tasks.vision.core.RunningMode
-import com.google.mediapipe.tasks.vision.imagesegmenter.ImageSegmenter
-import com.google.mediapipe.tasks.vision.imagesegmenter.ImageSegmenterResult
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.asExecutor
-import org.webrtc.CameraXHelper
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.nio.ByteBuffer
-import java.util.concurrent.Semaphore
-import java.util.concurrent.locks.Lock
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.math.roundToInt
 
 
 /** LivekitBackgroundEffectsNativePlugin */
-@OptIn(ExperimentalCamera2Interop::class)
 class LivekitBackgroundEffectsNativePlugin : FlutterPlugin, MethodCallHandler {
     private val TAG = "Blurring Plugin"
 
@@ -63,95 +39,14 @@ class LivekitBackgroundEffectsNativePlugin : FlutterPlugin, MethodCallHandler {
 
     private lateinit var assetManager: AssetManager
     private lateinit var flutterAssets: FlutterPlugin.FlutterAssets
-    private lateinit var imageAnalysis: ImageAnalysis
-    private val imageAnalyzer: ImageAnalyser = ImageAnalyser()
+    private lateinit var applicationContext: Context
 
-    private lateinit var segmenter: ImageSegmenter
-    private val lock: Lock = ReentrantLock()
+    /** The segmentation model, loaded once; each processor gets its own view of it. */
+    private var modelBuffer: ByteBuffer? = null
 
-
+    // Only accessed from the platform (main) thread.
     private var processors: MutableMap<Int, VirtualBackgroundVideoProcessor> = HashMap()
     private var tracks: MutableMap<Int, String> = HashMap()
-    private var cameraProvider: CameraCapturerUtils.CameraProvider? = null
-
-
-    private inner class ImageAnalyser : ImageAnalysis.Analyzer {
-        val latch = Semaphore(1, true)
-
-        @OptIn(
-            ExperimentalGetImage::class, ExperimentalStdlibApi::class
-        )
-        override fun analyze(imageProxy: ImageProxy) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
-                imageProxy.close()
-                return;
-            }
-
-            val image = imageProxy.image
-
-            lock.lock()
-            var enabled: Boolean
-            try {
-                enabled = processors.values.any { it.enabled }
-            } finally {
-                lock.unlock()
-            }
-
-            if (enabled && image != null) {
-                if (!latch.tryAcquire()) {
-                    imageProxy.close()
-                    return
-                }
-
-                val bitmapBuffer : Bitmap;
-
-                imageProxy.use {
-                    bitmapBuffer = imageProxy.toBitmap()
-                }
-                segmenter.segmentAsync(
-                    BitmapImageBuilder(bitmapBuffer).build(),
-                    SystemClock.uptimeMillis()
-                )
-
-                latch.acquire()
-                latch.release()
-            }
-
-            imageProxy.close()
-        }
-
-        @RequiresApi(Build.VERSION_CODES.N)
-        fun handleResult(result: ImageSegmenterResult, image: MPImage) {
-            val mask = result.confidenceMasks().get()[0]
-            val maskBuffer= ByteBufferExtractor.extract(mask)
-            val converted = ByteBuffer.allocateDirect(mask.width * mask.height)
-                    val originalData = FloatArray(mask.width * mask.height)
-            maskBuffer.asFloatBuffer().get(originalData)
-                    val convertedData =
-                        originalData.asIterable().map { (it * 255).roundToInt().toByte() }
-                            .toByteArray()
-                    converted.put(convertedData)
-                    converted.rewind()
-
-                    val holder = VirtualBackgroundTransformer.MaskHolder(
-                        mask.width,
-                        mask.height,
-                        converted,
-                    )
-
-                    lock.lock()
-                    try {
-                        processors.values.forEach { it.lastMask = holder }
-                    } finally {
-                        lock.unlock()
-                    }
-                    latch.release()
-        }
-
-        fun handleError(result: RuntimeException) {
-            latch.release()
-        }
-    }
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         Log.i(TAG, "attach to engine")
@@ -159,52 +54,11 @@ class LivekitBackgroundEffectsNativePlugin : FlutterPlugin, MethodCallHandler {
         channel.setMethodCallHandler(this)
         assetManager = flutterPluginBinding.getApplicationContext().getAssets()
         flutterAssets = flutterPluginBinding.getFlutterAssets()
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            val modelPath = flutterAssets.getAssetFilePathByName(
-                "assets/models/selfie_segmenter.tflite",
-                "livekit_background_effects_platform_interface"
-            )
-            val modelStream = assetManager.open(modelPath)
-            val length = modelStream.available()
-            val modelBuffer = ByteBuffer.allocateDirect(length)
-            val readBuffer = ByteArray(1024 * 128)
-            while (modelStream.available() > 0) {
-                val read = modelStream.read(readBuffer)
-                modelBuffer.put(readBuffer, 0, read)
-            }
-            modelBuffer.rewind()
-            val options = ImageSegmenter.ImageSegmenterOptions.builder().setBaseOptions(
-                BaseOptions.builder().setModelAssetBuffer(
-                    modelBuffer
-                ).setDelegate(Delegate.CPU).build()
-            ).setRunningMode(RunningMode.LIVE_STREAM).setOutputConfidenceMasks(true)
-                .setOutputCategoryMask(false)
-                .setResultListener { result, input ->
-                    imageAnalyzer.handleResult(result, input)
-                }
-                .setErrorListener { e -> imageAnalyzer.handleError(e) }
-                .build()
-            segmenter =
-                ImageSegmenter.createFromOptions(
-                    flutterPluginBinding.getApplicationContext(),
-                    options
-                )
-        }
-
-        imageAnalysis = ImageAnalysis.Builder().build()
-        imageAnalysis.setAnalyzer(Dispatchers.IO.asExecutor(), imageAnalyzer)
-        cameraProvider =
-            CameraXHelper.createCameraProvider(ProcessLifecycleOwner.get(), arrayOf(imageAnalysis))
-        if (cameraProvider?.isSupported(flutterPluginBinding.getApplicationContext()) == true) {
-            CameraCapturerUtils.registerCameraProvider(cameraProvider!!)
-        } else {
-            cameraProvider = null
-        }
+        applicationContext = flutterPluginBinding.getApplicationContext()
     }
 
     override fun onMethodCall(call: MethodCall, result: Result) {
-        Log.i(TAG, "call to ${call.method} with camera provider: ${cameraProvider != null}")
+        Log.i(TAG, "call to ${call.method}")
         if (call.method == "initVideoBlurring") {
             initVideoBlurring(call, result)
         } else if (call.method == "destroy") {
@@ -227,16 +81,8 @@ class LivekitBackgroundEffectsNativePlugin : FlutterPlugin, MethodCallHandler {
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
-        if (cameraProvider != null) {
-            CameraCapturerUtils.unregisterCameraProvider(cameraProvider!!)
-        }
-        lock.lock()
-        try {
-            processors.values.forEach { it.dispose() }
-            processors.clear()
-        } finally {
-            lock.unlock()
-        }
+        processors.values.forEach { it.dispose() }
+        processors.clear()
         tracks.clear()
     }
 
@@ -267,26 +113,30 @@ class LivekitBackgroundEffectsNativePlugin : FlutterPlugin, MethodCallHandler {
             return
         }
 
-        val modelPath = flutterAssets.getAssetFilePathByName(
-            "assets/models/selfie_segmenter.tflite", "livekit_background_effects_platform_interface"
+        val processor = VirtualBackgroundVideoProcessor(
+            EglUtils.getRootEglBaseContext(),
+            applicationContext,
+            loadModel().duplicate(),
         )
-        val modelStream = assetManager.open(modelPath)
-
-        val byteArray = inputStreamToByteArray(modelStream)
-        val byteBuffer = ByteBuffer.allocateDirect(byteArray.size)
-        byteBuffer.put(byteArray)
-        val processor = VirtualBackgroundVideoProcessor(EglUtils.getRootEglBaseContext())
         processor.enabled = true
-        lock.lock()
-        try {
-            processors.put(processorId, processor)
-        } finally {
-            lock.unlock()
-        }
+        processors.put(processorId, processor)
         tracks.put(processorId, trackId)
         (track as LocalVideoTrack).addProcessor(processor)
 
         result.success(null)
+    }
+
+    private fun loadModel(): ByteBuffer {
+        modelBuffer?.let { return it }
+        val modelPath = flutterAssets.getAssetFilePathByName(
+            "assets/models/selfie_segmenter.tflite", "livekit_background_effects_platform_interface"
+        )
+        val byteArray = assetManager.open(modelPath).use { inputStreamToByteArray(it) }
+        val buffer = ByteBuffer.allocateDirect(byteArray.size)
+        buffer.put(byteArray)
+        buffer.rewind()
+        modelBuffer = buffer
+        return buffer
     }
 
     private fun inputStreamToByteArray(modelStream: InputStream): ByteArray {
@@ -331,12 +181,7 @@ class LivekitBackgroundEffectsNativePlugin : FlutterPlugin, MethodCallHandler {
         if (track != null) {
             (track as LocalVideoTrack).removeProcessor(processor)
         }
-        lock.lock()
-        try {
-            processors.remove(processorId)
-        } finally {
-            lock.unlock()
-        }
+        processors.remove(processorId)
         tracks.remove(processorId)
 
         // Non-blocking: GL teardown happens on the processor's own thread.
