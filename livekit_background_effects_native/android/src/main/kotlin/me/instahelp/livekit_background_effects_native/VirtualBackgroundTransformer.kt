@@ -109,6 +109,13 @@ class VirtualBackgroundTransformer(
 
     var initialized = false
 
+    /**
+     * Framebuffer the final composite is rendered into. The intermediate passes
+     * (blur, resampling) bind their own framebuffers and reset to 0 afterwards,
+     * so this has to be re-bound right before compositing.
+     */
+    var targetFrameBufferId = 0
+
     fun initialize() {
         Log.e(TAG, "initialize shaders")
         compositeShader = createCompsiteShader()
@@ -228,6 +235,7 @@ class VirtualBackgroundTransformer(
             maskAspectRatio = 1f
         }
 
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, targetFrameBufferId)
         compositeShader.renderComposite(
             backgroundTextureId = backgroundTexture,
             frameTextureId = oesTextureId,

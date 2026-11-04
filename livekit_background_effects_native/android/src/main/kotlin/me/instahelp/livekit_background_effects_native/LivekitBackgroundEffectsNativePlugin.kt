@@ -41,7 +41,6 @@ import io.flutter.plugin.common.MethodChannel.Result
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
 import org.webrtc.CameraXHelper
-import org.webrtc.EglBase
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.nio.ByteBuffer
@@ -231,7 +230,14 @@ class LivekitBackgroundEffectsNativePlugin : FlutterPlugin, MethodCallHandler {
         if (cameraProvider != null) {
             CameraCapturerUtils.unregisterCameraProvider(cameraProvider!!)
         }
-        processors.values.forEach { it.dispose() }
+        lock.lock()
+        try {
+            processors.values.forEach { it.dispose() }
+            processors.clear()
+        } finally {
+            lock.unlock()
+        }
+        tracks.clear()
     }
 
     private fun initVideoBlurring(call: MethodCall, result: Result) {
@@ -269,8 +275,7 @@ class LivekitBackgroundEffectsNativePlugin : FlutterPlugin, MethodCallHandler {
         val byteArray = inputStreamToByteArray(modelStream)
         val byteBuffer = ByteBuffer.allocateDirect(byteArray.size)
         byteBuffer.put(byteArray)
-        val processor = VirtualBackgroundVideoProcessor(EglBase.create(EglUtils.getRootEglBaseContext()))
-        processor.onCapturerStarted(true)
+        val processor = VirtualBackgroundVideoProcessor(EglUtils.getRootEglBaseContext())
         processor.enabled = true
         lock.lock()
         try {
@@ -334,7 +339,8 @@ class LivekitBackgroundEffectsNativePlugin : FlutterPlugin, MethodCallHandler {
         }
         tracks.remove(processorId)
 
-        processor.onCapturerStopped()
+        // Non-blocking: GL teardown happens on the processor's own thread.
+        processor.dispose()
 
         result.success(null)
 
