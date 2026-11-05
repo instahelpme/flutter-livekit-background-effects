@@ -25,6 +25,7 @@ import me.instahelp.livekit_background_effects_native.opengl.LKGlTextureFrameBuf
 import me.instahelp.livekit_background_effects_native.shader.BlurShader
 import me.instahelp.livekit_background_effects_native.shader.CompositeShader
 import me.instahelp.livekit_background_effects_native.shader.ResamplerShader
+import me.instahelp.livekit_background_effects_native.shader.RotateShader
 import me.instahelp.livekit_background_effects_native.shader.createBlurShader
 import me.instahelp.livekit_background_effects_native.shader.createBoxBlurShader
 import me.instahelp.livekit_background_effects_native.shader.createCompsiteShader
@@ -36,14 +37,16 @@ import java.nio.ByteBuffer
 
 /**
  * Blurs the background of the camera video stream.
+ *
+ * Coordinate spaces: the composite samples background and mask in the camera frame's
+ * unrotated texture space (raw OES coordinates). The segmenter, however, gets an upright
+ * image ([readbackUpright]); [uploadMask] rotates its result back into the frame's space.
  */
 class VirtualBackgroundTransformer(
     val downSampleFactor: Int = 2,
 ) : RendererCommon.GlDrawer {
 
     private val TAG = VirtualBackgroundTransformer::class.java.simpleName
-
-    data class MaskHolder(val width: Int, val height: Int, val buffer: ByteBuffer)
 
     private lateinit var compositeShader: CompositeShader
     private lateinit var blurShader: BlurShader
@@ -84,33 +87,34 @@ class VirtualBackgroundTransformer(
             }
         }
 
-    // For double buffering the final mask
-    private var readMaskIndex = 0 // Index for renderFrame to read from
-    private var writeMaskIndex = 1 // Index for updateMask to write to
+    // Mask pipeline: the upright mask is uploaded, softened with a box blur and then rotated
+    // back into the frame's (unrotated) texture space, where the composite samples it.
+    private lateinit var maskUploadFrameBuffer: LKGlTextureFrameBuffer
+    private lateinit var maskBlurFrameBuffers: Pair<GlTextureFrameBuffer, GlTextureFrameBuffer>
+    private lateinit var finalMaskFrameBuffer: GlTextureFrameBuffer
 
-    private fun swapMaskIndexes() {
-        if (readMaskIndex == 0) {
-            readMaskIndex = 1
-            writeMaskIndex = 0
-        } else {
-            readMaskIndex = 0
-            writeMaskIndex = 1
-        }
-    }
-
-    var newMask: MaskHolder? = null
-    var maskWidth: Int? = null
-    var maskHeight: Int? = null
-    var prevMask: MaskHolder? = null
-    lateinit var anotherTempMaskFrameBuffer: LKGlTextureFrameBuffer
-    lateinit var tempMaskTextureFrameBuffer: GlTextureFrameBuffer
-
-    lateinit var finalMaskFrameBuffers: List<GlTextureFrameBuffer>
+    // Upright, downscaled copy of the camera frame that is fed to the segmenter.
+    private lateinit var readbackFrameBuffer: GlTextureFrameBuffer
+    private lateinit var rotateOes: RotateShader
+    private lateinit var rotate2d: RotateShader
 
     var initialized = false
 
-    fun initialize() {
-        Log.e(TAG, "initialize shaders")
+    /**
+     * Framebuffer the final composite is rendered into. The intermediate passes
+     * (blur, resampling) bind their own framebuffers and reset to 0 afterwards,
+     * so this has to be re-bound right before compositing.
+     */
+    var targetFrameBufferId = 0
+
+    private fun ensureInitialized() {
+        if (!initialized) {
+            initialize()
+        }
+    }
+
+    private fun initialize() {
+        Log.i(TAG, "initialize shaders")
         compositeShader = createCompsiteShader()
         blurShader = createBlurShader()
         boxBlurShader = createBoxBlurShader()
@@ -123,15 +127,15 @@ class VirtualBackgroundTransformer(
 
         downSampler = createResampler()
 
-        // For double buffering the final mask
-        anotherTempMaskFrameBuffer =
+        maskUploadFrameBuffer =
             LKGlTextureFrameBuffer(GLES30.GL_R8, GLES30.GL_RED, GLES30.GL_UNSIGNED_BYTE)
-        tempMaskTextureFrameBuffer = GlTextureFrameBuffer(GLES20.GL_RGBA)
+        maskBlurFrameBuffers =
+            GlTextureFrameBuffer(GLES20.GL_RGBA) to GlTextureFrameBuffer(GLES20.GL_RGBA)
+        finalMaskFrameBuffer = GlTextureFrameBuffer(GLES20.GL_RGBA)
 
-        finalMaskFrameBuffers = listOf(
-            GlTextureFrameBuffer(GLES20.GL_RGBA),
-            GlTextureFrameBuffer(GLES20.GL_RGBA),
-        )
+        readbackFrameBuffer = GlTextureFrameBuffer(GLES20.GL_RGBA)
+        rotateOes = RotateShader.forOes()
+        rotate2d = RotateShader.for2d()
 
         GlUtil.checkNoGLES2Error("VirtualBackgroundTransformer.initialize")
         initialized = true
@@ -147,16 +151,7 @@ class VirtualBackgroundTransformer(
         viewportWidth: Int,
         viewportHeight: Int,
     ) {
-        if (!initialized) {
-            initialize()
-        }
-        // Log.i(TAG, "start drawing to $oesTextureId")
-
-        newMask?.let {
-            updateMaskFrameBuffer(it)
-            prevMask = it
-            newMask = null
-        }
+        ensureInitialized()
         val r: Int
         synchronized(rotationStateLock) {
             r = rotation
@@ -221,87 +216,96 @@ class VirtualBackgroundTransformer(
             }
         }
 
-        val maskAspectRatio: Float
-        if (maskWidth != null && maskHeight != null) {
-            maskAspectRatio = maskWidth!!.toFloat() / maskHeight!!.toFloat()
-        } else {
-            maskAspectRatio = 1f
-        }
-
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, targetFrameBufferId)
         compositeShader.renderComposite(
             backgroundTextureId = backgroundTexture,
             frameTextureId = oesTextureId,
-            maskTextureId = finalMaskFrameBuffers[readMaskIndex].textureId,
+            maskTextureId = finalMaskFrameBuffer.textureId,
             viewportX = viewportX,
             viewportY = viewportY,
             viewportWidth = viewportWidth,
             viewportHeight = viewportHeight,
             texMatrix = texMatrix,
             rotation = r,
-            maskAspectRatio = maskAspectRatio
         )
-        // Log.i(TAG, "finished drawing to $oesTextureId $backgroundTexture, ${finalMaskFrameBuffers[readMaskIndex].textureId}, ${bgTextureFrameBuffers.first.textureId} ${bgTextureFrameBuffers.second.textureId}")
 
     }
 
     /**
-     * Thread-safe method to set the foreground mask.
+     * Rotates the camera frame upright, downscales it to [width]x[height] and reads it back
+     * as RGBA into [out] (row 0 = top of the upright image).
+     *
+     * [width] and [height] are the upright (rotated) dimensions.
      */
-    fun updateMask(segmentationMask: MaskHolder) {
-        newMask = segmentationMask
+    fun readbackUpright(oesTextureId: Int, rotation: Int, width: Int, height: Int, out: ByteBuffer) {
+        ensureInitialized()
+        readbackFrameBuffer.setSize(width, height)
+        rotateOes.draw(oesTextureId, rotation, readbackFrameBuffer.frameBufferId, width, height)
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, readbackFrameBuffer.frameBufferId)
+        out.clear()
+        GLES20.glReadPixels(0, 0, width, height, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, out)
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        checkNoError("readbackUpright")
     }
 
-    private fun updateMaskFrameBuffer(segmentationMask: MaskHolder) {
+    /**
+     * Uploads a mask produced from [readbackUpright] for a frame with the given [rotation].
+     */
+    internal fun uploadMask(mask: PersonSegmenter.Mask, rotation: Int) {
+        ensureInitialized()
+        val width = mask.width
+        val height = mask.height
 
-        val width = segmentationMask.width
-        val height = segmentationMask.height
-        maskWidth = width
-        maskHeight = height
-
-        anotherTempMaskFrameBuffer.setSize(width, height)
-        tempMaskTextureFrameBuffer.setSize(width, height)
-        finalMaskFrameBuffers[0].setSize(width, height)
-        finalMaskFrameBuffers[1].setSize(width, height)
-
-        // Upload the mask into a texture
+        maskUploadFrameBuffer.setSize(width, height)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, anotherTempMaskFrameBuffer.textureId)
-        checkNoError("bindMaskTexture")
-
-
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, maskUploadFrameBuffer.textureId)
+        // Rows of a one-byte-per-pixel mask are not necessarily 4-byte aligned.
+        GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
+        mask.buffer.rewind()
         GLES20.glTexSubImage2D(
-            /*target*/
             GLES20.GL_TEXTURE_2D,
             0,
             0,
             0,
             width,
             height,
-            /*format*/
             GLES30.GL_RED,
-            /*type*/
             GLES20.GL_UNSIGNED_BYTE,
-            segmentationMask.buffer,
+            mask.buffer,
         )
-
-        checkNoError("updateMaskFrameBuffer")
-
+        GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 4)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+        checkNoError("uploadMask")
 
-        val finalMaskBuffer = finalMaskFrameBuffers[writeMaskIndex]
-        val frameBuffers = tempMaskTextureFrameBuffer to finalMaskBuffer
-        val r: Int
-        synchronized(rotationStateLock) {
-            r = rotation
-        }
-
-
-        boxBlurShader.applyBlur(
-            anotherTempMaskFrameBuffer.textureId, 2f, width, height, frameBuffers, r
+        // Soften the mask in upright space; the blur is rotation independent.
+        val blurred = boxBlurShader.applyBlur(
+            maskUploadFrameBuffer.textureId, 2f, width, height, maskBlurFrameBuffers, 0
         )
 
-        // Swap indicies for next frame.
-        swapMaskIndexes()
+        // Rotate back into the unrotated frame space used by the composite.
+        val unrotatedWidth = if (rotation % 180 == 0) width else height
+        val unrotatedHeight = if (rotation % 180 == 0) height else width
+        finalMaskFrameBuffer.setSize(unrotatedWidth, unrotatedHeight)
+        rotate2d.draw(
+            blurred,
+            (360 - rotation) % 360,
+            finalMaskFrameBuffer.frameBufferId,
+            unrotatedWidth,
+            unrotatedHeight,
+        )
+    }
+
+    /**
+     * Sets a mask without any person, so the whole frame shows the background.
+     */
+    fun clearMask() {
+        ensureInitialized()
+        finalMaskFrameBuffer.setSize(1, 1)
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, finalMaskFrameBuffer.frameBufferId)
+        GLES20.glClearColor(0f, 0f, 0f, 0f)
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        checkNoError("clearMask")
     }
 
     override fun drawRgb(
@@ -327,12 +331,13 @@ class VirtualBackgroundTransformer(
         bgTextureFrameBuffers.second.release()
         downSampler.release()
 
-        anotherTempMaskFrameBuffer.release()
-        tempMaskTextureFrameBuffer.release()
-        finalMaskFrameBuffers.forEach {
-            it.release()
-        }
-            
+        maskUploadFrameBuffer.release()
+        maskBlurFrameBuffers.first.release()
+        maskBlurFrameBuffers.second.release()
+        finalMaskFrameBuffer.release()
+        readbackFrameBuffer.release()
+        rotateOes.release()
+        rotate2d.release()
         }
     }
 
