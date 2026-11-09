@@ -30,7 +30,6 @@ uniform sampler2D background;
 uniform sampler2D mask;
 uniform samplerExternalOES frame;
 uniform float rotations[6];
-uniform float aspectRatioRatio[2];
 out vec4 fragColor;
 
 vec2 rotateCoordinates(vec2 coords) {
@@ -44,28 +43,21 @@ void main() {
     vec2 rotatedCoords = rotateCoordinates(texCoords);
     vec4 frameTex = texture(frame, rotatedCoords);
     vec4 bgTex = texture(background, rotatedCoords);
-    
-    vec2 scaledMaskCoords = vec2(
-        rotatedCoords.x*aspectRatioRatio[0]+(1.0-aspectRatioRatio[0])/2.0,
-        rotatedCoords.y*aspectRatioRatio[1]+(1.0-aspectRatioRatio[1])/2.0
-    );
 
-    float maskVal = texture(mask, scaledMaskCoords).r;
+    // The mask is generated from this very frame, so it covers exactly the same area.
+    float maskVal = texture(mask, rotatedCoords).r;
 
-    // Compute screen-space gradient to detect edge sharpness
+    // Screen-space gradient of the mask: large at the person's outline, ~0 elsewhere.
     float grad = length(vec2(dFdx(maskVal), dFdy(maskVal)));
 
-    float edgeSoftness = 6.0; // higher = softer (orig 6)
+    // Turn the confidence into a mostly binary alpha with an anti-aliased edge whose width
+    // follows the gradient. Higher = softer edge. The lower bound keeps smoothstep defined
+    // (edge0 < edge1) in flat areas.
+    float edgeSoftness = 2.0;
+    float edgeWidth = max(grad * edgeSoftness, 0.02);
+    float alpha = smoothstep(0.5 - edgeWidth, 0.5 + edgeWidth, maskVal);
 
-    // Create a smooth edge around binary transition
-    float smoothAlpha = smoothstep(0.5 - grad * edgeSoftness, 0.5 + grad * edgeSoftness, maskVal);
-
-    // Optional: preserve frame alpha, or override as fully opaque
-    vec4 blended = mix(bgTex, vec4(frameTex.rgb, 1.0), 0.0 + maskVal);
-
-     fragColor = blended;
-
-
+    fragColor = mix(bgTex, vec4(frameTex.rgb, 1.0), alpha);
 }
 """
 
@@ -81,7 +73,6 @@ internal fun createCompsiteShader(): CompositeShader {
         frame = shader.getUniformLocation("frame"),
         background = shader.getUniformLocation("background"),
         rotations = shader.getUniformLocation("rotations"),
-        aspectRatioRatio = shader.getUniformLocation("aspectRatioRatio"),
     )
 }
 
@@ -94,7 +85,6 @@ internal data class CompositeShader(
     val frame: Int,
     val background: Int,
     val rotations: Int,
-    val aspectRatioRatio: Int,
 ) {
     private val TAG = "CompositeShader"
 
@@ -108,7 +98,6 @@ internal data class CompositeShader(
         viewportHeight: Int,
         texMatrix: FloatArray,
         rotation: Int,
-        maskAspectRatio: Float,
     ) {
         GLES20.glViewport(viewportX, viewportY, viewportWidth, viewportHeight)
         GLES20.glClearColor(1f, 1f, 1f, 1f)
@@ -187,19 +176,8 @@ internal data class CompositeShader(
             }
         }
 
-        val viewportAspectRatio = viewportWidth.toFloat() / viewportHeight.toFloat()
-        val currentAspectRatioRatio = viewportAspectRatio / maskAspectRatio
-
         GLES20.glUniform1fv(rotations, 6, floatArrayOf(
             xx,xy,x,yx,yy,y
-        ), 0)
-
-        val scaleX = if (currentAspectRatioRatio < 1f) (1f/currentAspectRatioRatio)-1f else 1f
-        val scaleY = if (currentAspectRatioRatio > 1f) 1f/currentAspectRatioRatio else 1f
-//         Log.i(TAG, "maskAspectRatio: $maskAspectRatio, width: $viewportWidth, height: $viewportHeight, viewportAspectRatio: $viewportAspectRatio, aspectRatioRatio: $currentAspectRatioRatio, scaleX $scaleX, scaleY $scaleY")
-        GLES20.glUniform1fv(aspectRatioRatio, 2, floatArrayOf(
-            scaleX,
-            scaleY
         ), 0)
 
         // Draw composite
