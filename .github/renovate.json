@@ -17,7 +17,7 @@
         {
             "customType": "regex",
             "managerFilePatterns": [
-                "/^.github/workflows/build.yml$/"
+                "/^.github/workflows/build.ya?ml$/"
             ],
             "matchStrings": [
                 "flutter-version: (?<currentValue>.*)\\n"
