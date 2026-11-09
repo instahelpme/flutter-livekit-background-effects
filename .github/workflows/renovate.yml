@@ -19,7 +19,7 @@ jobs:
         id: app-token
         with:
           private-key: ${{ secrets.RENOVATE_KEY }}
-          app-id: 264287
+          client-id: Iv1.9bf2a1510800717e
 
       - name: Checkout
         uses: actions/checkout@v7
